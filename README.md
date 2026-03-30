@@ -24,6 +24,8 @@
 
 ```bash
 git clone https://gitee.com/eventargs/AIBrowserAPI.git
+或者
+git clone https://github.com/eventArgs884/AIBrowserAPI.git
 ```
 
 ### 2️⃣ 使用 Visual Studio 打开项目
