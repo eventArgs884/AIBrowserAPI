@@ -255,7 +255,7 @@ namespace Jsonsee
 
     #endregion
 
-    #region 工具返回值模型 (按要求修正)
+    #region 工具返回值模型
 
     /// <summary>
     /// 工具执行结果的包裹类
