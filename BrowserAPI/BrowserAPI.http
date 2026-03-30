@@ -1,0 +1,86 @@
+@BrowserAPI_HostAddress = http://localhost:5096
+
+### 1. 获取浏览器服务配置
+GET {{BrowserAPI_HostAddress}}/api/Browser/Options
+Accept: application/json
+
+### 2. 导航到 Bing
+POST {{BrowserAPI_HostAddress}}/api/Browser/Navigate
+Accept: application/json
+Content-Type: application/json
+
+{
+  "url": "https://cn.bing.com/"
+}
+
+### 3. 获取页面 Arian 快照（扁平化）
+GET {{BrowserAPI_HostAddress}}/api/Browser/Arian?flatten=true&interestingOnly=true
+Accept: application/json
+
+### 4. 获取页面 Arian 快照（树形结构）
+GET {{BrowserAPI_HostAddress}}/api/Browser/Arian?flatten=false&interestingOnly=true
+Accept: application/json
+
+### 5. 在搜索框输入文本
+POST {{BrowserAPI_HostAddress}}/api/Browser/Type
+Accept: application/json
+Content-Type: application/json
+
+{
+  "role": "searchbox",
+  "name": "搜索",
+  "text": "Browser Automation Test",
+  "clearFirst": true,
+  "timeoutMs": 5000
+}
+
+### 6. 按下回车键执行搜索
+POST {{BrowserAPI_HostAddress}}/api/Browser/PressEnter
+Accept: application/json
+Content-Type: application/json
+
+{
+  "role": "searchbox",
+  "name": "搜索",
+  "timeoutMs": 5000
+}
+
+### 7. 等待 2 秒让页面加载
+POST {{BrowserAPI_HostAddress}}/api/Browser/Wait
+Accept: application/json
+Content-Type: application/json
+
+{
+  "milliseconds": 2000
+}
+
+### 8. 截取当前页面截图（全屏）
+GET {{BrowserAPI_HostAddress}}/api/Browser/Screenshot?fullPage=true
+Accept: application/json
+
+### 9. 截取当前页面截图（仅视口）
+GET {{BrowserAPI_HostAddress}}/api/Browser/Screenshot?fullPage=false
+Accept: application/json
+
+### 10. 获取当前页面 URL
+GET {{BrowserAPI_HostAddress}}/api/Browser/CurrentUrl
+Accept: application/json
+
+### 11. 获取当前页面标题
+GET {{BrowserAPI_HostAddress}}/api/Browser/Title
+Accept: application/json
+
+### 12. 点击搜索结果中的第一个链接（示例，需根据实际 Arian 快照调整 role/name）
+POST {{BrowserAPI_HostAddress}}/api/Browser/Click
+Accept: application/json
+Content-Type: application/json
+
+{
+  "role": "link",
+  "name": "Browser Automation",
+  "timeoutMs": 8000
+}
+
+### 13. 关闭浏览器并清理资源
+POST {{BrowserAPI_HostAddress}}/api/Browser/Close
+Accept: application/json
