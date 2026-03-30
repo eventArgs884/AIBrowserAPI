@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Text.Encodings.Web;
 using System.Text.Json;
@@ -144,6 +144,12 @@ namespace Jsonsee
         [JsonPropertyName("function")]
         [JsonRequired]
         public required Function Function { get; set; }
+
+        /// <summary>
+        /// 工具调用的索引（用于流式响应中的分片处理）
+        /// </summary>
+        [JsonPropertyName("index")]
+        public int? Index { get; set; }
     }
 
     /// <summary>

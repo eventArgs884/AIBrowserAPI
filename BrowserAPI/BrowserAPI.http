@@ -84,3 +84,13 @@ Content-Type: application/json
 ### 13. 关闭浏览器并清理资源
 POST {{BrowserAPI_HostAddress}}/api/Browser/Close
 Accept: application/json
+
+### 14. Ai交流
+POST {{BrowserAPI_HostAddress}}/api/chat/send
+Accept: application/json
+Content-Type: application/json
+
+{
+  "message": "你好",
+  "stream": false
+}

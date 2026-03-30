@@ -1,6 +1,6 @@
 # BrowserAPI 🌐
 
-一个基于 .NET 8 和 PuppeteerSharp 的浏览器自动化 API 服务，提供通过 HTTP 接口控制浏览器的能力。
+一个基于 .NET 8 和 PuppeteerSharp 的浏览器自动化 API 服务，提供通过 HTTP 接口控制浏览器的能力，并集成了AI对话功能。
 
 ## ✨ 特性
 
@@ -10,12 +10,15 @@
 - **🔗 导航控制**：以编程方式控制浏览器导航到指定 URL
 - **🌐 页面信息**：获取当前页面的 URL 和标题
 - **⏱️ 等待控制**：支持自定义等待时间，用于处理页面加载和动画
+- **🤖 AI 对话集成**：支持与本地AI对话，包含工具调用功能
+- **📝 历史记录管理**：保存和恢复对话历史
 - **⚙️ 灵活配置**：通过配置文件自定义浏览器行为（无头模式、超时时间、视口尺寸等）
 
 ## 📋 系统要求
 
 - **.NET 8.0 SDK** 或更高版本
 - **Google Chrome** 或 Chromium 浏览器（需预先安装）
+- **LM Studio**（可选，用于本地AI对话）
 - Windows / Linux / macOS（根据实际部署环境调整）
 
 ## 🚀 快速开始
@@ -57,7 +60,20 @@ git clone https://github.com/eventArgs884/AIBrowserAPI.git
 | Linux          | `/usr/bin/google-chrome`                                       |
 | macOS          | `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome` |
 
-### 4️⃣ 启动服务
+### 4️⃣ 配置AI（可选）
+
+如果要使用AI对话功能，请确保LM Studio正在运行，并配置以下内容：
+
+```json
+{
+  "AI": {
+    "BaseUrl": "http://localhost:11434",
+    "Model": "qwen/qwen3.5-35b-a3b"
+  }
+}
+```
+
+### 5️⃣ 启动服务
 
 ```bash
 dotnet run
@@ -71,10 +87,181 @@ dotnet run
 
 | 项目           | 值                                   |
 | ------------ | ----------------------------------- |
-| **Base URL** | `http://localhost:5096/api/browser` |
+| **Base URL** | `http://localhost:5096/api` |
 | **认证**       | 无需认证（本地开发环境）                        |
 
 ***
+
+## 🤖 聊天API
+
+### 1️⃣ 发送消息给AI 💬
+
+发送消息给AI并获取响应，支持流式和非流式两种模式。
+
+#### 流式请求（推荐）
+
+```http
+POST /api/chat/send
+Content-Type: application/json
+
+{
+  "message": "你好，请帮我导航到百度",
+  "stream": true,
+  "loadHistory": true
+}
+```
+
+**参数说明：**
+
+| 字段             | 类型      | 默认值     | 说明                     |
+| -------------- | ------- | ------- | ---------------------- |
+| `message`      | string  | -       | 用户发送的消息                |
+| `stream`       | boolean | `true`  | 是否使用流式响应               |
+| `loadHistory`  | boolean | `true`  | 是否加载历史记录               |
+
+**SSE 事件类型：**
+
+| 事件类型           | 说明                                 |
+| -------------- | ---------------------------------- |
+| `content`      | AI生成的文本内容                          |
+| `tool_calls`   | AI请求的工具调用                         |
+| `tool_result`  | 工具执行结果                             |
+| `done`         | 对话完成                               |
+
+#### 非流式请求
+
+```http
+POST /api/chat/send
+Content-Type: application/json
+
+{
+  "message": "你好",
+  "stream": false
+}
+```
+
+**响应示例：**
+
+```json
+{
+  "success": true,
+  "content": "你好！有什么我可以帮助你的吗？"
+}
+```
+
+***
+
+### 2️⃣ 获取可用工具列表 🛠️
+
+获取所有可用的AI工具列表。
+
+```http
+GET /api/chat/tools
+```
+
+**响应示例：**
+
+```json
+{
+  "success": true,
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "navigate_to_url",
+        "description": "导航到指定的URL",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string",
+              "description": "要导航到的URL"
+            }
+          },
+          "required": ["url"],
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}
+```
+
+***
+
+### 3️⃣ 保存历史记录 💾
+
+保存当前对话历史到本地JSON文件。
+
+```http
+POST /api/chat/history/save
+Content-Type: application/json
+
+{
+  "model": "qwen/qwen3.5-35b-a3b",
+  "messages": [...],
+  "stream": true
+}
+```
+
+**响应示例：**
+
+```json
+{
+  "success": true,
+  "message": "历史记录保存成功"
+}
+```
+
+***
+
+### 4️⃣ 加载历史记录 📂
+
+从本地JSON文件加载对话历史。
+
+```http
+GET /api/chat/history/load
+```
+
+**响应示例：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "createdAt": "2024-01-01T00:00:00",
+    "updatedAt": "2024-01-01T00:00:00",
+    "conversation": {
+      "model": "qwen/qwen3.5-35b-a3b",
+      "messages": [...],
+      "stream": true
+    }
+  }
+}
+```
+
+***
+
+### 5️⃣ 清除历史记录 🗑️
+
+删除本地历史记录文件。
+
+```http
+DELETE /api/chat/history/clear
+```
+
+**响应示例：**
+
+```json
+{
+  "success": true,
+  "message": "历史记录已清除"
+}
+```
+
+***
+
+## 🌐 浏览器API
 
 ### 1️⃣ 获取 Arian 快照 📋
 
@@ -423,6 +610,8 @@ GET /api/browser/Options
 
 | 配置项               | 类型      | 默认值                                                                       | 说明                          |
 | ----------------- | ------- | ------------------------------------------------------------------------- | --------------------------- |
+| `AI.BaseUrl`      | string  | `http://localhost:11434`                                                   | AI服务器地址                     |
+| `AI.Model`        | string  | `qwen/qwen3.5-35b-a3b`                                                  | AI模型名称                      |
 | `Headless`        | boolean | `false`                                                                   | 是否以无头模式启动（服务器环境推荐设为 `true`） |
 | `ExecutablePath`  | string  | -                                                                         | Chrome/Chromium 可执行文件路径     |
 | `DefaultTimeout`  | integer | `30000`                                                                   | 页面操作默认超时时间（毫秒）              |
@@ -464,6 +653,18 @@ GET /api/browser/Options
 }
 ```
 
+## 🧪 运行测试
+
+项目包含xUnit测试用例，运行测试：
+
+```bash
+dotnet test
+```
+
+测试覆盖：
+- Speckjson模型测试
+- ChatController模型测试
+
 ## 🛠️ 开发指南
 
 ### 项目结构
@@ -472,13 +673,19 @@ GET /api/browser/Options
 BrowserAPI/
 ├── BrowserAutomation.cs      # 核心浏览器自动化服务实现
 ├── Controllers/
-│   └── BrowserController.cs  # RESTful API 控制器
+│   ├── BrowserController.cs  # 浏览器RESTful API 控制器
+│   └── ChatController.cs     # 聊天/AI API 控制器
+├── Speckjson.cs              # AI对话模型定义
 ├── Program.cs                # 应用入口和依赖注入配置
 ├── appsettings.json          # 配置文件
 ├── appsettings.Development.json  # 开发环境配置
 ├── BrowserAPI.http           # HTTP 请求示例文件
 ├── launchSettings.json       # 启动设置
 └── BrowserAPI.csproj         # 项目文件
+
+BrowserAPI.Tests/             # 测试项目
+├── SpeckjsonTests.cs         # Speckjson模型测试
+└── ChatControllerTests.cs    # ChatController测试
 ```
 
 ### 核心类说明
@@ -488,10 +695,11 @@ BrowserAPI/
 | [`McpBrowserService`](BrowserAPI/BrowserAutomation.cs:103)    | 浏览器自动化服务主类，封装所有浏览器操作 |
 | [`BrowserServiceOptions`](BrowserAPI/BrowserAutomation.cs:14) | 浏览器配置选项类             |
 | [`ArianNode`](BrowserAPI/BrowserAutomation.cs:57)             | 可访问性树节点模型            |
+| [`ChatController`](BrowserAPI/Controllers/ChatController.cs)   | 聊天/AI对话控制器           |
 
 ### 添加自定义 API
 
-在 [`BrowserController.cs`](BrowserAPI/Controllers/BrowserController.cs) 中添加新的端点：
+在 [`BrowserController.cs`](BrowserAPI/Controllers/BrowserController.cs) 或 [`ChatController.cs`](BrowserAPI/Controllers/ChatController.cs) 中添加新的端点：
 
 ```csharp
 [HttpGet("CustomEndpoint")]
@@ -526,12 +734,20 @@ public async Task<IActionResult> CustomEndpointAsync()
 - 先调用 `GET /api/browser/Arian` 查看页面当前结构
 - 确认角色（role）和名称（name）参数匹配
 
+**4. "AI连接失败"**
+
+- 确保LM Studio正在运行
+- 检查 `appsettings.json` 中的 `AI.BaseUrl` 配置是否正确
+- 确认AI模型已在LM Studio中加载
+
 ## 📦 依赖项
 
 | 依赖             | 版本      | 说明                          |
 | -------------- | ------- | --------------------------- |
 | PuppeteerSharp | 24.40.0 | .NET 版本的 Puppeteer，用于浏览器自动化 |
 | ASP.NET Core   | 8.0     | Web API 框架                  |
+| xunit          | 2.6.6   | 测试框架                        |
+| Moq            | 4.20.72 | Mock框架                      |
 
 ## 📄 许可证
 
