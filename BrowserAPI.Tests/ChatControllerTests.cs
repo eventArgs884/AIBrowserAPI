@@ -1,13 +1,13 @@
-using BrowserAPI.Controllers;
+using BrowserAPI.Models;
 using Jsonsee;
 using Xunit;
 
 namespace BrowserAPI.Tests
 {
     /// <summary>
-    /// ChatController测试类
+    /// 模型测试类
     /// </summary>
-    public class ChatControllerTests
+    public class ModelsTests
     {
         /// <summary>
         /// 测试ChatRequest模型初始化
@@ -15,7 +15,7 @@ namespace BrowserAPI.Tests
         [Fact]
         public void ChatRequest_ShouldInitializeWithDefaults()
         {
-            var request = new ChatController.ChatRequest();
+            var request = new ChatRequest();
 
             Assert.Equal(string.Empty, request.Message);
             Assert.True(request.Stream);
@@ -29,7 +29,7 @@ namespace BrowserAPI.Tests
         public void ChatHistory_ShouldInitializeCorrectly()
         {
             var speckjson = HelperSpeckmode.GetMode("test-model", false);
-            var history = new ChatController.ChatHistory
+            var history = new ChatHistory
             {
                 CreatedAt = DateTime.Now,
                 UpdatedAt = DateTime.Now,
@@ -46,7 +46,7 @@ namespace BrowserAPI.Tests
         [Fact]
         public void FrontendNotification_ShouldInitializeCorrectly()
         {
-            var notification = new ChatController.FrontendNotification
+            var notification = new FrontendNotification
             {
                 Type = "content",
                 Data = new { text = "test" },

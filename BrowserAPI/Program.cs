@@ -1,4 +1,5 @@
 using BrowserAutomation;
+using BrowserAPI.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -10,6 +11,12 @@ builder.Services.AddSingleton<McpBrowserService>();
 
 // 注册 HttpClientFactory
 builder.Services.AddHttpClient();
+
+// 注册 HttpContextAccessor
+builder.Services.AddHttpContextAccessor();
+
+// 注册 ChatService
+builder.Services.AddScoped<ChatService>();
 
 builder.Services.AddControllers();
 
