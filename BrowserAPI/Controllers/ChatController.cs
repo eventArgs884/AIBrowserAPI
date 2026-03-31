@@ -426,6 +426,7 @@ namespace BrowserAPI.Controllers
 
                 speckjson.Tools = GetAvailableTools();
                 speckjson.ToolChoice = "auto";
+                speckjson.Stream = request.Stream;
 
                 if (!string.IsNullOrEmpty(request.Message))
                 {
@@ -568,6 +569,7 @@ namespace BrowserAPI.Controllers
                     }
                 }
 
+                speckjson.Stream = true;
                 var newRequestJson = HelperSpeckmode.GetJson(speckjson);
                 var newContent = new StringContent(newRequestJson, Encoding.UTF8, "application/json");
                 var newResponse = await client.PostAsync($"{aiBaseUrl}/v1/chat/completions", newContent);
@@ -690,6 +692,7 @@ namespace BrowserAPI.Controllers
                     }
                 }
 
+                speckjson.Stream = false;
                 var newRequestJson = HelperSpeckmode.GetJson(speckjson);
                 var newContent = new StringContent(newRequestJson, Encoding.UTF8, "application/json");
                 var newHttpResponse = await client.PostAsync($"{aiBaseUrl}/v1/chat/completions", newContent);
