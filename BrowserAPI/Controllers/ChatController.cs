@@ -157,11 +157,6 @@ namespace BrowserAPI.Controllers
                     }
                 }
 
-                if (!string.IsNullOrEmpty(fullContent.ToString()))
-                {
-                    HelperSpeckmode.AddValueMess(speckjson, HelperSpeckmode.Token.助手, fullContent.ToString());
-                }
-
                 if (finishReason == "tool_calls" && accumulatedToolCalls != null && accumulatedToolCalls.Count > 0)
                 {
                     var toolArgs = accumulatedToolCalls.Select(tc => new HelperSpeckmode.ToolArg
@@ -217,7 +212,6 @@ namespace BrowserAPI.Controllers
                             {
                                 HelperSpeckmode.AddValueMess(speckjson, HelperSpeckmode.Token.工具, toolResult, toolCall.Id ?? "");
                             }
-                            //HelperSpeckmode.AddValueMess(speckjson, HelperSpeckmode.Token.工具, toolResult, toolCall.Id ?? "");
                             await _chatService.SendSseEventAsync("tool_result", new { tool_name = toolCall.Function.Name, result = toolResult });
                         }
                     }
@@ -227,6 +221,10 @@ namespace BrowserAPI.Controllers
                 }
                 else
                 {
+                    if (!string.IsNullOrEmpty(fullContent.ToString()))
+                    {
+                        HelperSpeckmode.AddValueMess(speckjson, HelperSpeckmode.Token.助手, fullContent.ToString());
+                    }
                     continueProcessing = false;
                 }
             }
@@ -271,16 +269,6 @@ namespace BrowserAPI.Controllers
                 var choice = aiResponse.Choices[0];
                 var message = choice.Message;
 
-                if (message?.Content != null)
-                {
-                    HelperSpeckmode.AddValueMess(speckjson, HelperSpeckmode.Token.助手, message.Content);
-                    if (initialContent == null)
-                    {
-                        initialContent = message.Content;
-                    }
-                    finalContent = message.Content;
-                }
-
                 if (choice.FinishReason == "tool_calls" && message?.ToolCalls != null && message.ToolCalls.Count > 0)
                 {
                     var toolArgs = message.ToolCalls.Select(tc => new HelperSpeckmode.ToolArg
@@ -293,6 +281,11 @@ namespace BrowserAPI.Controllers
                     if (message.Content != null)
                     {
                         HelperSpeckmode.AddValueMess(speckjson, HelperSpeckmode.Token.助手, message.Content, toolArgs);
+                        if (initialContent == null)
+                        {
+                            initialContent = message.Content;
+                        }
+                        finalContent = message.Content;
                     }
                     else
                     {
@@ -348,6 +341,15 @@ namespace BrowserAPI.Controllers
                 }
                 else
                 {
+                    if (message?.Content != null)
+                    {
+                        HelperSpeckmode.AddValueMess(speckjson, HelperSpeckmode.Token.助手, message.Content);
+                        if (initialContent == null)
+                        {
+                            initialContent = message.Content;
+                        }
+                        finalContent = message.Content;
+                    }
                     continueProcessing = false;
                 }
             }

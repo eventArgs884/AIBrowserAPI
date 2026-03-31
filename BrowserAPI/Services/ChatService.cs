@@ -262,7 +262,66 @@ namespace BrowserAPI.Services
         #region 历史记录管理
 
         /// <summary>
-        /// 保存对话历史到本地JSON文件
+        /// 简化对话历史中的工具返回信息，减少文件大小
+        /// </summary>
+        /// <param name="conversation">原始对话内容</param>
+        /// <returns>简化后的对话内容</returns>
+        private Speckjson SimplifyConversationForStorage(Speckjson conversation)
+        {
+            var simplified = new Speckjson
+            {
+                Model = conversation.Model,
+                Tools = conversation.Tools,
+                ToolChoice = conversation.ToolChoice,
+                Stream = conversation.Stream,
+                Messages = new List<MessageList>()
+            };
+
+            foreach (var message in conversation.Messages)
+            {
+                var simplifiedMessage = new MessageList
+                {
+                    Role = message.Role,
+                    Content = message.Content,
+                    ToolCallId = message.ToolCallId,
+                    ToolCalls = message.ToolCalls
+                };
+
+                // 如果是工具消息且内容很长，我们只保留一个简化版本
+                if (message.Role == "tool" && message.Content is string contentStr)
+                {
+                    try
+                    {
+                        // 尝试解析为ReturnTools
+                        var toolResult = JsonSerializer.Deserialize<ReturnTools>(contentStr);
+                        if (toolResult != null)
+                        {
+                            // 创建简化版本
+                            var simplifiedResult = new ReturnTools
+                            {
+                                Content = toolResult.Content?.Take(1).ToList(), // 只保留第一个
+                                IsError = toolResult.IsError
+                            };
+                            simplifiedMessage.Content = JsonSerializer.Serialize(simplifiedResult, new JsonSerializerOptions
+                            {
+                                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+                            });
+                        }
+                    }
+                    catch
+                    {
+                        // 如果解析失败，保持原样
+                    }
+                }
+
+                simplified.Messages.Add(simplifiedMessage);
+            }
+
+            return simplified;
+        }
+
+        /// <summary>
+        /// 保存对话历史到本地JSON文件（简化版）
         /// </summary>
         /// <param name="conversation">对话内容</param>
         /// <returns>操作是否成功</returns>
@@ -270,11 +329,12 @@ namespace BrowserAPI.Services
         {
             try
             {
+                var simplifiedConversation = SimplifyConversationForStorage(conversation);
                 var history = new ChatHistory
                 {
                     CreatedAt = DateTime.Now,
                     UpdatedAt = DateTime.Now,
-                    Conversation = conversation
+                    Conversation = simplifiedConversation
                 };
 
                 lock (_fileLock)
