@@ -85,126 +85,26 @@ namespace BrowserAPI.Controllers
         /// <returns>流式响应</returns>
         private async Task<IActionResult> HandleStreamRequestAsync(HttpClient client, string aiBaseUrl, Speckjson speckjson)
         {
-            var requestJson = HelperSpeckmode.GetJson(speckjson);
-            var content = new StringContent(requestJson, Encoding.UTF8, "application/json");
-
-            var response = await client.PostAsync($"{aiBaseUrl}/v1/chat/completions", content);
-            response.EnsureSuccessStatusCode();
-
-            var stream = await response.Content.ReadAsStreamAsync();
-            var reader = new StreamReader(stream);
-
             _chatService.SetSseResponseHeaders();
+            bool continueProcessing = true;
 
-            string? line;
-            StringBuilder fullContent = new StringBuilder();
-            List<ToolCall>? accumulatedToolCalls = null;
-            string? finishReason = null;
-
-            while ((line = await reader.ReadLineAsync()) != null)
+            while (continueProcessing)
             {
-                if (line.StartsWith("data: "))
-                {
-                    var data = line.Substring(6);
-                    if (data == "[DONE]") break;
+                var requestJson = HelperSpeckmode.GetJson(speckjson);
+                var content = new StringContent(requestJson, Encoding.UTF8, "application/json");
 
-                    try
-                    {
-                        var streamResponse = HelperSpeckmode.GetModeJson<AiGetStream>(data);
-                        if (streamResponse?.Choices != null && streamResponse.Choices.Count > 0)
-                        {
-                            var choice = streamResponse.Choices[0];
-                            finishReason = choice.FinishReason;
+                var response = await client.PostAsync($"{aiBaseUrl}/v1/chat/completions", content);
+                response.EnsureSuccessStatusCode();
 
-                            if (choice.Delta?.Content != null)
-                            {
-                                fullContent.Append(choice.Delta.Content);
-                                await _chatService.SendSseEventAsync("content", new { content = choice.Delta.Content });
-                            }
+                var stream = await response.Content.ReadAsStreamAsync();
+                var reader = new StreamReader(stream);
 
-                            if (choice.Delta?.ToolCalls != null)
-                            {
-                                if (accumulatedToolCalls == null)
-                                {
-                                    accumulatedToolCalls = new List<ToolCall>();
-                                }
-                                foreach (var deltaToolCall in choice.Delta.ToolCalls)
-                                {
-                                    if (deltaToolCall.Index.HasValue)
-                                    {
-                                        while (accumulatedToolCalls.Count <= deltaToolCall.Index.Value)
-                                        {
-                                            accumulatedToolCalls.Add(new ToolCall { Type = "function", Function = new Function() });
-                                        }
-                                        var existing = accumulatedToolCalls[deltaToolCall.Index.Value];
-                                        if (!string.IsNullOrEmpty(deltaToolCall.Id))
-                                            existing.Id = deltaToolCall.Id;
-                                        if (deltaToolCall.Function != null)
-                                        {
-                                            if (!string.IsNullOrEmpty(deltaToolCall.Function.Name))
-                                                existing.Function.Name = deltaToolCall.Function.Name;
-                                            existing.Function.Arguments += deltaToolCall.Function.Arguments ?? "";
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    catch { }
-                }
-            }
+                string? line;
+                StringBuilder fullContent = new StringBuilder();
+                List<ToolCall>? accumulatedToolCalls = null;
+                string? finishReason = null;
 
-            if (!string.IsNullOrEmpty(fullContent.ToString()))
-            {
-                HelperSpeckmode.AddValueMess(speckjson, HelperSpeckmode.Token.助手, fullContent.ToString());
-            }
-
-            if (finishReason == "tool_calls" && accumulatedToolCalls != null && accumulatedToolCalls.Count > 0)
-            {
-                var toolArgs = accumulatedToolCalls.Select(tc => new HelperSpeckmode.ToolArg
-                {
-                    Id = tc.Id ?? Guid.NewGuid().ToString(),
-                    Name = tc.Function?.Name ?? "",
-                    Arguments = tc.Function?.Arguments ?? "{}"
-                }).ToList();
-
-                if (!string.IsNullOrEmpty(fullContent.ToString()))
-                {
-                    HelperSpeckmode.AddValueMess(speckjson, HelperSpeckmode.Token.助手, fullContent.ToString(), toolArgs);
-                }
-                else
-                {
-                    speckjson.Messages.Add(new MessageList
-                    {
-                        Role = "assistant",
-                        Content = "",
-                        ToolCalls = accumulatedToolCalls
-                    });
-                }
-
-                await _chatService.SendSseEventAsync("tool_calls", new { tool_calls = accumulatedToolCalls });
-
-                foreach (var toolCall in accumulatedToolCalls)
-                {
-                    if (toolCall.Function?.Name != null && toolCall.Function?.Arguments != null)
-                    {
-                        var toolResult = await _chatService.ExecuteToolAsync(toolCall.Function.Name, toolCall.Function.Arguments);
-                        HelperSpeckmode.AddValueMess(speckjson, HelperSpeckmode.Token.工具, toolResult, toolCall.Id ?? "");
-                        await _chatService.SendSseEventAsync("tool_result", new { tool_name = toolCall.Function.Name, result = toolResult });
-                    }
-                }
-
-                speckjson.Stream = true;
-                var newRequestJson = HelperSpeckmode.GetJson(speckjson);
-                var newContent = new StringContent(newRequestJson, Encoding.UTF8, "application/json");
-                var newResponse = await client.PostAsync($"{aiBaseUrl}/v1/chat/completions", newContent);
-                newResponse.EnsureSuccessStatusCode();
-
-                var newStream = await newResponse.Content.ReadAsStreamAsync();
-                var newReader = new StreamReader(newStream);
-                StringBuilder newFullContent = new StringBuilder();
-
-                while ((line = await newReader.ReadLineAsync()) != null)
+                while ((line = await reader.ReadLineAsync()) != null)
                 {
                     if (line.StartsWith("data: "))
                     {
@@ -217,10 +117,39 @@ namespace BrowserAPI.Controllers
                             if (streamResponse?.Choices != null && streamResponse.Choices.Count > 0)
                             {
                                 var choice = streamResponse.Choices[0];
+                                finishReason = choice.FinishReason;
+
                                 if (choice.Delta?.Content != null)
                                 {
-                                    newFullContent.Append(choice.Delta.Content);
+                                    fullContent.Append(choice.Delta.Content);
                                     await _chatService.SendSseEventAsync("content", new { content = choice.Delta.Content });
+                                }
+
+                                if (choice.Delta?.ToolCalls != null)
+                                {
+                                    if (accumulatedToolCalls == null)
+                                    {
+                                        accumulatedToolCalls = new List<ToolCall>();
+                                    }
+                                    foreach (var deltaToolCall in choice.Delta.ToolCalls)
+                                    {
+                                        if (deltaToolCall.Index.HasValue)
+                                        {
+                                            while (accumulatedToolCalls.Count <= deltaToolCall.Index.Value)
+                                            {
+                                                accumulatedToolCalls.Add(new ToolCall { Type = "function", Function = new Function() });
+                                            }
+                                            var existing = accumulatedToolCalls[deltaToolCall.Index.Value];
+                                            if (!string.IsNullOrEmpty(deltaToolCall.Id))
+                                                existing.Id = deltaToolCall.Id;
+                                            if (deltaToolCall.Function != null)
+                                            {
+                                                if (!string.IsNullOrEmpty(deltaToolCall.Function.Name))
+                                                    existing.Function.Name = deltaToolCall.Function.Name;
+                                                existing.Function.Arguments += deltaToolCall.Function.Arguments ?? "";
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -228,9 +157,52 @@ namespace BrowserAPI.Controllers
                     }
                 }
 
-                if (!string.IsNullOrEmpty(newFullContent.ToString()))
+                if (!string.IsNullOrEmpty(fullContent.ToString()))
                 {
-                    HelperSpeckmode.AddValueMess(speckjson, HelperSpeckmode.Token.助手, newFullContent.ToString());
+                    HelperSpeckmode.AddValueMess(speckjson, HelperSpeckmode.Token.助手, fullContent.ToString());
+                }
+
+                if (finishReason == "tool_calls" && accumulatedToolCalls != null && accumulatedToolCalls.Count > 0)
+                {
+                    var toolArgs = accumulatedToolCalls.Select(tc => new HelperSpeckmode.ToolArg
+                    {
+                        Id = tc.Id ?? Guid.NewGuid().ToString(),
+                        Name = tc.Function?.Name ?? "",
+                        Arguments = tc.Function?.Arguments ?? "{}"
+                    }).ToList();
+
+                    if (!string.IsNullOrEmpty(fullContent.ToString()))
+                    {
+                        HelperSpeckmode.AddValueMess(speckjson, HelperSpeckmode.Token.助手, fullContent.ToString(), toolArgs);
+                    }
+                    else
+                    {
+                        speckjson.Messages.Add(new MessageList
+                        {
+                            Role = "assistant",
+                            Content = "",
+                            ToolCalls = accumulatedToolCalls
+                        });
+                    }
+
+                    await _chatService.SendSseEventAsync("tool_calls", new { tool_calls = accumulatedToolCalls });
+
+                    foreach (var toolCall in accumulatedToolCalls)
+                    {
+                        if (toolCall.Function?.Name != null && toolCall.Function?.Arguments != null)
+                        {
+                            var toolResult = await _chatService.ExecuteToolAsync(toolCall.Function.Name, toolCall.Function.Arguments);
+                            HelperSpeckmode.AddValueMess(speckjson, HelperSpeckmode.Token.工具, toolResult, toolCall.Id ?? "");
+                            await _chatService.SendSseEventAsync("tool_result", new { tool_name = toolCall.Function.Name, result = toolResult });
+                        }
+                    }
+
+                    speckjson.Stream = true;
+                    continueProcessing = true;
+                }
+                else
+                {
+                    continueProcessing = false;
                 }
             }
 
@@ -249,122 +221,130 @@ namespace BrowserAPI.Controllers
         /// <returns>非流式响应</returns>
         private async Task<IActionResult> HandleNonStreamRequestAsync(HttpClient client, string aiBaseUrl, Speckjson speckjson)
         {
-            var requestJson = HelperSpeckmode.GetJson(speckjson);
-            var content = new StringContent(requestJson, Encoding.UTF8, "application/json");
+            bool continueProcessing = true;
+            var allToolCalls = new List<ToolCall>();
+            var allToolResults = new List<object>();
+            string? finalContent = null;
+            string? initialContent = null;
 
-            var response = await client.PostAsync($"{aiBaseUrl}/v1/chat/completions", content);
-            response.EnsureSuccessStatusCode();
-
-            var responseJson = await response.Content.ReadAsStringAsync();
-            var aiResponse = HelperSpeckmode.GetModeJson<AiGetNoStream>(responseJson);
-
-            if (aiResponse?.Choices == null || aiResponse.Choices.Count == 0)
+            while (continueProcessing)
             {
-                return BadRequest(new { success = false, message = "AI没有返回有效响应" });
-            }
+                var requestJson = HelperSpeckmode.GetJson(speckjson);
+                var content = new StringContent(requestJson, Encoding.UTF8, "application/json");
 
-            var choice = aiResponse.Choices[0];
-            var message = choice.Message;
+                var response = await client.PostAsync($"{aiBaseUrl}/v1/chat/completions", content);
+                response.EnsureSuccessStatusCode();
 
-            if (message?.Content != null)
-            {
-                HelperSpeckmode.AddValueMess(speckjson, HelperSpeckmode.Token.助手, message.Content);
-            }
+                var responseJson = await response.Content.ReadAsStringAsync();
+                var aiResponse = HelperSpeckmode.GetModeJson<AiGetNoStream>(responseJson);
 
-            if (choice.FinishReason == "tool_calls" && message?.ToolCalls != null && message.ToolCalls.Count > 0)
-            {
-                var toolArgs = message.ToolCalls.Select(tc => new HelperSpeckmode.ToolArg
+                if (aiResponse?.Choices == null || aiResponse.Choices.Count == 0)
                 {
-                    Id = tc.Id ?? Guid.NewGuid().ToString(),
-                    Name = tc.Function?.Name ?? "",
-                    Arguments = tc.Function?.Arguments ?? "{}"
-                }).ToList();
+                    return BadRequest(new { success = false, message = "AI没有返回有效响应" });
+                }
 
-                if (message.Content != null)
+                var choice = aiResponse.Choices[0];
+                var message = choice.Message;
+
+                if (message?.Content != null)
                 {
-                    HelperSpeckmode.AddValueMess(speckjson, HelperSpeckmode.Token.助手, message.Content, toolArgs);
+                    HelperSpeckmode.AddValueMess(speckjson, HelperSpeckmode.Token.助手, message.Content);
+                    if (initialContent == null)
+                    {
+                        initialContent = message.Content;
+                    }
+                    finalContent = message.Content;
+                }
+
+                if (choice.FinishReason == "tool_calls" && message?.ToolCalls != null && message.ToolCalls.Count > 0)
+                {
+                    var toolArgs = message.ToolCalls.Select(tc => new HelperSpeckmode.ToolArg
+                    {
+                        Id = tc.Id ?? Guid.NewGuid().ToString(),
+                        Name = tc.Function?.Name ?? "",
+                        Arguments = tc.Function?.Arguments ?? "{}"
+                    }).ToList();
+
+                    if (message.Content != null)
+                    {
+                        HelperSpeckmode.AddValueMess(speckjson, HelperSpeckmode.Token.助手, message.Content, toolArgs);
+                    }
+                    else
+                    {
+                        speckjson.Messages.Add(new MessageList
+                        {
+                            Role = "assistant",
+                            Content = "",
+                            ToolCalls = message.ToolCalls
+                        });
+                    }
+
+                    allToolCalls.AddRange(message.ToolCalls);
+
+                    foreach (var toolCall in message.ToolCalls)
+                    {
+                        if (toolCall.Function?.Name != null && toolCall.Function?.Arguments != null)
+                        {
+                            var toolResult = await _chatService.ExecuteToolAsync(toolCall.Function.Name, toolCall.Function.Arguments);
+                            //处理一下图片
+                            if (toolCall.Function.Name == "take_screenshot")
+                            {
+                                ReturnTools Im = new ReturnTools()
+                                {
+                                    Content = new List<ToolValue>()
+                                    {
+                                        new ToolValue()
+                                        {
+                                            Type="text",
+                                            Text = "已经自动截图",
+                                        }
+                                    }
+                                };
+                                if (toolResult.Content != null)
+                                {
+                                    HelperSpeckmode.AddValueMess(speckjson, HelperSpeckmode.Token.工具, Im, toolCall.Id ?? "");
+                                    HelperSpeckmode.AddImageMess(speckjson, HelperSpeckmode.Token.用户, new List<string>() { toolResult.Content[0].Text ?? "" }, "自动截图");
+                                }
+                            }
+                            else
+                            {
+                                HelperSpeckmode.AddValueMess(speckjson, HelperSpeckmode.Token.工具, toolResult, toolCall.Id ?? "");
+                            }
+                            allToolResults.Add(new
+                            {
+                                tool_name = toolCall.Function.Name,
+                                result = toolResult
+                            });
+                        }
+                    }
+
+                    speckjson.Stream = false;
+                    continueProcessing = true;
                 }
                 else
                 {
-                    speckjson.Messages.Add(new MessageList
-                    {
-                        Role = "assistant",
-                        Content = "",
-                        ToolCalls = message.ToolCalls
-                    });
+                    continueProcessing = false;
                 }
-
-                var responseDict = new Dictionary<string, object?>
-                {
-                    ["success"] = true,
-                    ["content"] = message.Content,
-                    ["tool_calls"] = message.ToolCalls,
-                    ["tool_results"] = new List<object>()
-                };
-
-                var toolResults = (List<object>)responseDict["tool_results"]!;
-                foreach (var toolCall in message.ToolCalls)
-                {
-                    if (toolCall.Function?.Name != null && toolCall.Function?.Arguments != null)
-                    {
-                        var toolResult = await _chatService.ExecuteToolAsync(toolCall.Function.Name, toolCall.Function.Arguments);
-                        //处理一下图片
-                        if (toolCall.Function.Name == "take_screenshot")
-                        {
-                            ReturnTools Im = new ReturnTools()
-                            {
-                                Content = new List<ToolValue>()
-                                {
-                                    new ToolValue()
-                                    {
-                                        Type="text",
-                                        Text = "已经自动截图",
-                                    }
-                                }
-                            };
-                            if (toolResult.Content != null)
-                            {
-                                HelperSpeckmode.AddValueMess(speckjson, HelperSpeckmode.Token.工具, Im, toolCall.Id ?? "");
-                                HelperSpeckmode.AddImageMess(speckjson, HelperSpeckmode.Token.用户, new List<string>() { toolResult.Content[0].Text ?? "" }, "自动截图");
-                            }
-                        }
-                        else
-                        {
-                            HelperSpeckmode.AddValueMess(speckjson, HelperSpeckmode.Token.工具, toolResult, toolCall.Id ?? "");
-                        }
-                        toolResults.Add(new
-                        {
-                            tool_name = toolCall.Function.Name,
-                            result = toolResult
-                        });
-                    }
-                }
-
-                speckjson.Stream = false;
-                var newRequestJson = HelperSpeckmode.GetJson(speckjson);
-                var newContent = new StringContent(newRequestJson, Encoding.UTF8, "application/json");
-                var newHttpResponse = await client.PostAsync($"{aiBaseUrl}/v1/chat/completions", newContent);
-                newHttpResponse.EnsureSuccessStatusCode();
-
-                var newResponseJson = await newHttpResponse.Content.ReadAsStringAsync();
-                var newAiResponse = HelperSpeckmode.GetModeJson<AiGetNoStream>(newResponseJson);
-
-                if (newAiResponse?.Choices != null && newAiResponse.Choices.Count > 0)
-                {
-                    var newMessage = newAiResponse.Choices[0].Message;
-                    if (newMessage?.Content != null)
-                    {
-                        HelperSpeckmode.AddValueMess(speckjson, HelperSpeckmode.Token.助手, newMessage.Content);
-                        responseDict["final_content"] = newMessage.Content;
-                    }
-                }
-
-                _chatService.SaveHistory(speckjson);
-                return Ok(responseDict);
             }
 
             _chatService.SaveHistory(speckjson);
-            return Ok(new { success = true, content = message?.Content });
+
+            if (allToolCalls.Count > 0)
+            {
+                var responseDict = new Dictionary<string, object?>
+                {
+                    ["success"] = true,
+                    ["content"] = initialContent,
+                    ["tool_calls"] = allToolCalls,
+                    ["tool_results"] = allToolResults,
+                    ["final_content"] = finalContent
+                };
+                return Ok(responseDict);
+            }
+            else
+            {
+                return Ok(new { success = true, content = finalContent });
+            }
         }
 
         #endregion
