@@ -192,7 +192,32 @@ namespace BrowserAPI.Controllers
                         if (toolCall.Function?.Name != null && toolCall.Function?.Arguments != null)
                         {
                             var toolResult = await _chatService.ExecuteToolAsync(toolCall.Function.Name, toolCall.Function.Arguments);
-                            HelperSpeckmode.AddValueMess(speckjson, HelperSpeckmode.Token.工具, toolResult, toolCall.Id ?? "");
+
+                            //处理一下图片
+                            if (toolCall.Function.Name == "take_screenshot")
+                            {
+                                ReturnTools Im = new ReturnTools()
+                                {
+                                    Content = new List<ToolValue>()
+                                    {
+                                        new ToolValue()
+                                        {
+                                            Type="text",
+                                            Text = "已经自动截图",
+                                        }
+                                    }
+                                };
+                                if (toolResult.Content != null)
+                                {
+                                    HelperSpeckmode.AddValueMess(speckjson, HelperSpeckmode.Token.工具, Im, toolCall.Id ?? "");
+                                    HelperSpeckmode.AddImageMess(speckjson, HelperSpeckmode.Token.用户, new List<string>() { toolResult.Content[0].Text ?? "" }, "自动截图");
+                                }
+                            }
+                            else
+                            {
+                                HelperSpeckmode.AddValueMess(speckjson, HelperSpeckmode.Token.工具, toolResult, toolCall.Id ?? "");
+                            }
+                            //HelperSpeckmode.AddValueMess(speckjson, HelperSpeckmode.Token.工具, toolResult, toolCall.Id ?? "");
                             await _chatService.SendSseEventAsync("tool_result", new { tool_name = toolCall.Function.Name, result = toolResult });
                         }
                     }
