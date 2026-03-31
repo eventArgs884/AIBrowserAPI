@@ -379,6 +379,92 @@ namespace BrowserAPI.Controllers
         #region 历史记录管理
 
         /// <summary>
+        /// 创建新对话
+        /// 立即保存当前历史记录并生成一个新的AI请求对象
+        /// </summary>
+        /// <returns>新对话信息</returns>
+        [HttpPost("history/new")]
+        public IActionResult CreateNewConversation()
+        {
+            try
+            {
+                var newHistory = _chatService.CreateNewConversation();
+                return Ok(new { success = true, data = newHistory });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { success = false, message = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// 加载历史列表
+        /// 遍历历史文件夹，将文件名和ID生成list返回前端
+        /// </summary>
+        /// <returns>历史记录列表</returns>
+        [HttpGet("history/list")]
+        public IActionResult GetHistoryList()
+        {
+            try
+            {
+                var histories = _chatService.GetHistoryList();
+                return Ok(new { success = true, data = histories });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { success = false, message = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// 加载历史记录
+        /// 前端发送ID，后端立即保存当前历史记录并加载前端的历史记录，并返回历史记录中的聊天List
+        /// </summary>
+        /// <param name="id">历史记录ID</param>
+        /// <returns>历史记录数据</returns>
+        [HttpGet("history/load/{id}")]
+        public IActionResult LoadHistoryById(string id)
+        {
+            try
+            {
+                var history = _chatService.LoadHistoryByIdAndSetCurrent(id);
+                if (history == null)
+                {
+                    return NotFound(new { success = false, message = "没有找到指定的历史记录" });
+                }
+                return Ok(new { success = true, data = history });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { success = false, message = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// 删除历史记录
+        /// 前端发送ID，删除文件
+        /// </summary>
+        /// <param name="id">历史记录ID</param>
+        /// <returns>操作结果</returns>
+        [HttpDelete("history/delete/{id}")]
+        public IActionResult DeleteHistory(string id)
+        {
+            try
+            {
+                var success = _chatService.DeleteHistory(id);
+                if (success)
+                {
+                    return Ok(new { success = true, message = "历史记录已删除" });
+                }
+                return NotFound(new { success = false, message = "没有找到指定的历史记录" });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { success = false, message = ex.Message });
+            }
+        }
+
+        /// <summary>
         /// 保存对话历史到本地JSON文件
         /// </summary>
         /// <param name="conversation">对话内容</param>

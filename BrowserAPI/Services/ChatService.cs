@@ -18,8 +18,10 @@ namespace BrowserAPI.Services
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly IConfiguration _configuration;
         private readonly HttpContext? _httpContext;
-        private static readonly string _historyFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "chat_history.json");
+        private static readonly string _historyFolderPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "chat_histories");
+        private static readonly string _currentHistoryFilePath = Path.Combine(_historyFolderPath, "current.json");
         private static readonly object _fileLock = new object();
+        private static string? _currentHistoryId;
 
         /// <summary>
         /// 初始化聊天服务
@@ -262,6 +264,25 @@ namespace BrowserAPI.Services
         #region 历史记录管理
 
         /// <summary>
+        /// 确保历史文件夹存在
+        /// </summary>
+        private void EnsureHistoryFolderExists()
+        {
+            if (!Directory.Exists(_historyFolderPath))
+            {
+                Directory.CreateDirectory(_historyFolderPath);
+            }
+        }
+
+        /// <summary>
+        /// 获取历史记录文件路径
+        /// </summary>
+        private string GetHistoryFilePath(string id)
+        {
+            return Path.Combine(_historyFolderPath, $"{id}.json");
+        }
+
+        /// <summary>
         /// 简化对话历史中的工具返回信息，减少文件大小
         /// </summary>
         /// <param name="conversation">原始对话内容</param>
@@ -321,21 +342,35 @@ namespace BrowserAPI.Services
         }
 
         /// <summary>
-        /// 保存对话历史到本地JSON文件（简化版）
+        /// 从对话内容生成标题
         /// </summary>
-        /// <param name="conversation">对话内容</param>
-        /// <returns>操作是否成功</returns>
-        public bool SaveHistory(Speckjson conversation)
+        private string GenerateTitleFromConversation(Speckjson conversation)
+        {
+            // 找到第一条用户消息作为标题
+            foreach (var message in conversation.Messages)
+            {
+                if (message.Role == "user")
+                {
+                    if (message.Content is string contentStr)
+                    {
+                        // 取前30个字符作为标题
+                        var title = contentStr.Length > 30 ? contentStr.Substring(0, 30) + "..." : contentStr;
+                        return title;
+                    }
+                }
+            }
+            return "新对话";
+        }
+
+        /// <summary>
+        /// 保存对话历史到指定ID的文件
+        /// </summary>
+        private bool SaveHistoryToFile(ChatHistory history)
         {
             try
             {
-                var simplifiedConversation = SimplifyConversationForStorage(conversation);
-                var history = new ChatHistory
-                {
-                    CreatedAt = DateTime.Now,
-                    UpdatedAt = DateTime.Now,
-                    Conversation = simplifiedConversation
-                };
+                EnsureHistoryFolderExists();
+                var filePath = GetHistoryFilePath(history.Id);
 
                 lock (_fileLock)
                 {
@@ -344,7 +379,7 @@ namespace BrowserAPI.Services
                         WriteIndented = true,
                         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
                     });
-                    System.IO.File.WriteAllText(_historyFilePath, json);
+                    System.IO.File.WriteAllText(filePath, json);
                 }
 
                 return true;
@@ -356,14 +391,68 @@ namespace BrowserAPI.Services
         }
 
         /// <summary>
-        /// 从本地JSON文件加载对话历史
+        /// 保存当前对话历史
         /// </summary>
-        /// <returns>历史记录数据，如果不存在则返回null</returns>
-        public ChatHistory? LoadHistory()
+        public bool SaveHistory(Speckjson conversation)
         {
             try
             {
-                if (!System.IO.File.Exists(_historyFilePath))
+                var simplifiedConversation = SimplifyConversationForStorage(conversation);
+
+                ChatHistory history;
+                if (_currentHistoryId == null)
+                {
+                    history = new ChatHistory
+                    {
+                        Id = Guid.NewGuid().ToString(),
+                        Title = GenerateTitleFromConversation(conversation),
+                        CreatedAt = DateTime.Now,
+                        UpdatedAt = DateTime.Now,
+                        Conversation = simplifiedConversation
+                    };
+                    _currentHistoryId = history.Id;
+                }
+                else
+                {
+                    history = LoadHistoryById(_currentHistoryId) ?? new ChatHistory
+                    {
+                        Id = _currentHistoryId,
+                        CreatedAt = DateTime.Now
+                    };
+                    history.Title = GenerateTitleFromConversation(conversation);
+                    history.UpdatedAt = DateTime.Now;
+                    history.Conversation = simplifiedConversation;
+                }
+
+                return SaveHistoryToFile(history);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 加载当前对话历史
+        /// </summary>
+        public ChatHistory? LoadHistory()
+        {
+            if (_currentHistoryId != null)
+            {
+                return LoadHistoryById(_currentHistoryId);
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// 根据ID加载历史记录
+        /// </summary>
+        public ChatHistory? LoadHistoryById(string id)
+        {
+            try
+            {
+                var filePath = GetHistoryFilePath(id);
+                if (!System.IO.File.Exists(filePath))
                 {
                     return null;
                 }
@@ -371,7 +460,7 @@ namespace BrowserAPI.Services
                 string json;
                 lock (_fileLock)
                 {
-                    json = System.IO.File.ReadAllText(_historyFilePath);
+                    json = System.IO.File.ReadAllText(filePath);
                 }
 
                 return JsonSerializer.Deserialize<ChatHistory>(json);
@@ -383,20 +472,139 @@ namespace BrowserAPI.Services
         }
 
         /// <summary>
+        /// 获取所有历史记录摘要列表
+        /// </summary>
+        public List<ChatHistorySummary> GetHistoryList()
+        {
+            var summaries = new List<ChatHistorySummary>();
+            try
+            {
+                EnsureHistoryFolderExists();
+                var files = Directory.GetFiles(_historyFolderPath, "*.json")
+                    .Where(f => !Path.GetFileName(f).Equals("current.json", StringComparison.OrdinalIgnoreCase))
+                    .OrderByDescending(f => System.IO.File.GetLastWriteTime(f));
+
+                foreach (var file in files)
+                {
+                    try
+                    {
+                        var json = System.IO.File.ReadAllText(file);
+                        var history = JsonSerializer.Deserialize<ChatHistory>(json);
+                        if (history != null)
+                        {
+                            summaries.Add(new ChatHistorySummary
+                            {
+                                Id = history.Id,
+                                Title = history.Title,
+                                CreatedAt = history.CreatedAt,
+                                UpdatedAt = history.UpdatedAt
+                            });
+                        }
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+            return summaries;
+        }
+
+        /// <summary>
+        /// 创建新对话
+        /// </summary>
+        public ChatHistory CreateNewConversation()
+        {
+            SaveCurrentToHistory();
+            _currentHistoryId = null;
+
+            var aiModel = GetAiModel();
+            var newHistory = new ChatHistory
+            {
+                Id = Guid.NewGuid().ToString(),
+                Title = "新对话",
+                CreatedAt = DateTime.Now,
+                UpdatedAt = DateTime.Now,
+                Conversation = HelperSpeckmode.GetMode(aiModel, true)
+            };
+
+            _currentHistoryId = newHistory.Id;
+            SaveHistoryToFile(newHistory);
+            return newHistory;
+        }
+
+        /// <summary>
+        /// 保存当前对话到历史记录
+        /// </summary>
+        private void SaveCurrentToHistory()
+        {
+            if (_currentHistoryId != null)
+            {
+                var currentHistory = LoadHistory();
+                if (currentHistory != null)
+                {
+                    SaveHistoryToFile(currentHistory);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 加载指定的历史记录
+        /// </summary>
+        public ChatHistory? LoadHistoryByIdAndSetCurrent(string id)
+        {
+            SaveCurrentToHistory();
+            var history = LoadHistoryById(id);
+            if (history != null)
+            {
+                _currentHistoryId = id;
+            }
+            return history;
+        }
+
+        /// <summary>
+        /// 删除指定ID的历史记录
+        /// </summary>
+        public bool DeleteHistory(string id)
+        {
+            try
+            {
+                var filePath = GetHistoryFilePath(id);
+                if (System.IO.File.Exists(filePath))
+                {
+                    lock (_fileLock)
+                    {
+                        System.IO.File.Delete(filePath);
+                    }
+                    if (_currentHistoryId == id)
+                    {
+                        _currentHistoryId = null;
+                    }
+                    return true;
+                }
+                return false;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
         /// 清除本地历史记录文件
         /// </summary>
-        /// <returns>操作是否成功</returns>
         public bool ClearHistory()
         {
             try
             {
-                if (System.IO.File.Exists(_historyFilePath))
+                EnsureHistoryFolderExists();
+                var files = Directory.GetFiles(_historyFolderPath, "*.json");
+                lock (_fileLock)
                 {
-                    lock (_fileLock)
+                    foreach (var file in files)
                     {
-                        System.IO.File.Delete(_historyFilePath);
+                        System.IO.File.Delete(file);
                     }
                 }
+                _currentHistoryId = null;
                 return true;
             }
             catch
